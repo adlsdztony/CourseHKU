@@ -6,8 +6,8 @@ authors = ["adlsdztony <zzl0712@connect.hku.hk>"]
 license = "MIT OR Apache-2.0"
 description = "A library for course scheduling in HKU"
 readme = "README.md"
-homepage = "https://github.com/adlsdztony/coursehku"
-repository = "https://github.com/adlsdztony/coursehku"
+homepage = "https://github.com/adlsdztony/CourseHKU"
+repository = "https://github.com/adlsdztony/CourseHKU"
 keywords = ["HKU", "course", "scheduling"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
