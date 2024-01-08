@@ -1,16 +1,24 @@
-use polars::prelude::*;
-use std::{collections::HashMap, ops::Deref, path::PathBuf, clone};
+use polars::{lazy::dsl::col, prelude::*};
+use std::{clone, collections::HashMap, ops::Deref, path::PathBuf};
 
 #[derive(Debug, serde::Serialize, clone::Clone)]
 pub struct Course {
+    code: String,
     title: String,
+    // section -> session
     sections: HashMap<String, u64>,
     prereq: Vec<String>,
 }
 
 impl Course {
-    pub fn new(title: String, sections: HashMap<String, u64>, prereq: Vec<String>) -> Course {
+    pub fn new(
+        code: String,
+        title: String,
+        sections: HashMap<String, u64>,
+        prereq: Vec<String>,
+    ) -> Course {
         Course {
+            code,
             title,
             sections,
             prereq,
@@ -30,8 +38,7 @@ impl Deref for Course {
     }
 }
 
-
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, clone::Clone)]
 pub struct CourseMap {
     // code -> course
     courses: HashMap<String, Course>,
@@ -80,7 +87,7 @@ impl CourseMap {
 
             let course = courses
                 .entry(code.clone())
-                .or_insert_with(|| Course::new(title, HashMap::new(), prereq));
+                .or_insert_with(|| Course::new(code, title, HashMap::new(), prereq));
 
             course.sections.insert(section, session);
         }
@@ -97,13 +104,6 @@ impl CourseMap {
     pub fn conflict_with(&self, session: u64) -> bool {
         self.values().any(|course| course.conflict_with(session))
     }
-
-    pub fn head(&self, n: usize) -> HashMap<String, &Course> {
-        self.iter()
-            .take(n)
-            .map(|(k, v)| (k.clone(), v))
-            .collect::<HashMap<_, _>>()
-    }
 }
 
 impl Deref for CourseMap {
@@ -111,6 +111,15 @@ impl Deref for CourseMap {
 
     fn deref(&self) -> &Self::Target {
         &self.courses
+    }
+}
+
+
+impl From<Course> for CourseMap {
+    fn from(course: Course) -> Self {
+        let mut courses = HashMap::new();
+        courses.insert(course.code.clone(), course);
+        CourseMap::new(courses)
     }
 }
 
@@ -126,16 +135,12 @@ impl From<CourseTable> for CourseMap {
     }
 }
 
-fn is_session_conflict(a: u64, b: u64) -> bool {
-    a & b != 0
-}
-
 pub struct CourseTable {
     df: DataFrame,
 }
 
 impl CourseTable {
-    pub fn new(file_path: PathBuf) -> CourseTable {
+    pub fn load(file_path: PathBuf) -> CourseTable {
         let df = LazyCsvReader::new(file_path)
             .has_header(true)
             .finish()
@@ -147,48 +152,12 @@ impl CourseTable {
         CourseTable { df }
     }
 
-    pub fn code_starts_with(&self, code: &str) -> CourseTable {
-        // filter by course code contains code
-        let df = self
-            .df
-            .clone()
-            .lazy()
-            .filter(col("COURSE CODE").str().starts_with(lit(code)))
-            .collect()
-            .unwrap();
-
-        CourseTable { df }
-    }
-
-    pub fn no_conflict_with(&self, courses: &CourseMap) -> CourseTable {
-        let df = self.df.clone();
-
-        let mask = df
-            .column("SESSIONS")
-            .unwrap()
-            .u64()
-            .unwrap()
-            .into_iter()
-            .map(|x| !courses.conflict_with(x.unwrap()))
-            .collect::<Vec<_>>();
-
-        // cast mask to ChunkedArray<BooleanType>
-        let mask = mask.into_iter().collect::<BooleanChunked>();
-
-        CourseTable {
-            df: df.filter(&mask).unwrap(),
-        }
+    pub fn to_lazy(&self) -> LazyTable {
+        LazyTable::new(self.df.clone().lazy())
     }
 
     pub fn get_course(&self, code: &str) -> Option<Course> {
-        let df = self
-            .df
-            .clone()
-            .lazy()
-            .filter(col("COURSE CODE").str().starts_with(lit(code)))
-            .collect()
-            .unwrap();
-
+        let df = self.to_lazy().contains(&[code]).collect().unwrap();
         CourseMap::from_df(&df).unwrap().get(code).cloned()
     }
 
@@ -204,6 +173,11 @@ impl CourseTable {
 
         CourseMap::from_df(&df).unwrap().get(code).cloned()
     }
+
+    pub fn get_courses(&self, codes: &[&str]) -> Result<CourseMap, polars::prelude::PolarsError> {
+        let df = self.to_lazy().contains(codes).collect()?;
+        CourseMap::from_df(&df)
+    }
 }
 
 impl Deref for CourseTable {
@@ -217,5 +191,70 @@ impl Deref for CourseTable {
 impl std::fmt::Display for CourseTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.df)
+    }
+}
+
+pub struct LazyTable {
+    lf: LazyFrame,
+}
+
+impl LazyTable {
+    pub fn new(lf: LazyFrame) -> Self {
+        LazyTable { lf }
+    }
+
+    pub fn contains(self, codes: &[&str]) -> Self {
+        // return all courses that starts with codes
+        let regex = format!("^({})", codes.join("|"));
+
+        let df = self
+            .lf
+            .filter(col("COURSE CODE").str().contains(lit(regex), false));
+
+        LazyTable { lf: df }
+    }
+
+    pub fn no_conflict_with(self, courses: CourseMap) -> Self {
+        let df = self.lf.filter(col("SESSIONS").map(
+            move |s: Series| {
+                Ok(s.u64()
+                    .unwrap()
+                    .into_iter()
+                    .map(|x| Some(!courses.conflict_with(x.unwrap())))
+                    .collect())
+            },
+            GetOutput::from_type(DataType::Boolean),
+        ));
+
+        LazyTable { lf: df }
+    }
+
+    pub fn semester(self, semester: i8) -> Self {
+        let df = self
+            .lf
+            .filter(col("CLASS SECTION").str().starts_with(lit(semester)));
+
+        LazyTable { lf: df }
+    }
+
+    pub fn fall(self) -> Self {
+        self.semester(1)
+    }
+
+    pub fn spring(self) -> Self {
+        self.semester(2)
+    }
+
+    pub fn collect(self) -> Result<CourseTable, polars::prelude::PolarsError> {
+        let df = self.lf.collect()?;
+        Ok(CourseTable { df })
+    }
+}
+
+impl Deref for LazyTable {
+    type Target = LazyFrame;
+
+    fn deref(&self) -> &Self::Target {
+        &self.lf
     }
 }

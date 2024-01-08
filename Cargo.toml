@@ -1,10 +1,17 @@
 [package]
-name = "scheduler-data-analyzer"
+name = "coursehku"
 version = "0.1.0"
 edition = "2021"
+authors = ["adlsdztony <zzl0712@connect.hku.hk>"]
+license = "MIT OR Apache-2.0"
+description = "A library for course scheduling in HKU"
+readme = "README.md"
+homepage = "https://github.com/adlsdztony/coursehku"
+repository = "https://github.com/adlsdztony/coursehku"
+keywords = ["HKU", "course", "scheduling"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-polars = {version = "0.36.2", features = ["lazy", "strings"]}
+polars = {version = "0.36.2", features = ["lazy", "strings", "lazy_regex"]}
 serde = {version = "1.0.195" , features = ["derive"]}
