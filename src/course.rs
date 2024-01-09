@@ -1,13 +1,17 @@
 use polars::{lazy::dsl::col, prelude::*};
 use std::{clone, collections::HashMap, ops::Deref, path::PathBuf};
 
+pub trait Conflict {
+    fn conflict_with(&self, session: u64) -> bool;
+}
+
 #[derive(Debug, serde::Serialize, clone::Clone)]
 pub struct Course {
     code: String,
     title: String,
     // section -> session
     sections: HashMap<String, u64>,
-    prereq: Vec<String>,
+    pub prereq: Vec<String>,
 }
 
 impl Course {
@@ -24,8 +28,10 @@ impl Course {
             prereq,
         }
     }
+}
 
-    pub fn conflict_with(&self, session: u64) -> bool {
+impl Conflict for Course {
+    fn conflict_with(&self, session: u64) -> bool {
         self.sections.values().any(|x| x & session != 0)
     }
 }
@@ -35,6 +41,18 @@ impl Deref for Course {
 
     fn deref(&self) -> &Self::Target {
         &self.sections
+    }
+}
+
+impl TryFrom<CourseMap> for Course {
+    type Error = &'static str;
+
+    fn try_from(value: CourseMap) -> Result<Self, Self::Error> {
+        if value.len() != 1 {
+            return Err("CourseMap must have exactly one course");
+        }
+        let course = value.values().next().unwrap().clone();
+        Ok(course)
     }
 }
 
@@ -49,13 +67,17 @@ impl CourseMap {
         CourseMap { courses }
     }
 
-    pub fn add_course(&mut self, code: String, course: Course) {
+    pub fn add(&mut self, code: String, course: Course) {
         let section = course.sections;
         let course = self.courses.entry(code.clone()).or_insert_with(|| Course {
             sections: HashMap::new(),
             ..course
         });
         course.sections.extend(section);
+    }
+
+    pub fn extend(&mut self, other: CourseMap) {
+        self.courses.extend(other.courses);
     }
 
     pub fn from_df(df: &DataFrame) -> Result<CourseMap, polars::prelude::PolarsError> {
@@ -100,8 +122,10 @@ impl CourseMap {
             .and_then(|course| course.get(section))
             .copied()
     }
+}
 
-    pub fn conflict_with(&self, session: u64) -> bool {
+impl Conflict for CourseMap {
+    fn conflict_with(&self, session: u64) -> bool {
         self.values().any(|course| course.conflict_with(session))
     }
 }
@@ -113,7 +137,6 @@ impl Deref for CourseMap {
         &self.courses
     }
 }
-
 
 impl From<Course> for CourseMap {
     fn from(course: Course) -> Self {
@@ -141,15 +164,14 @@ pub struct CourseTable {
 
 impl CourseTable {
     pub fn load(file_path: PathBuf) -> CourseTable {
-        let df = LazyCsvReader::new(file_path)
+        LazyCsvReader::new(file_path)
             .has_header(true)
             .finish()
             .unwrap()
             .with_column(col("SESSIONS").cast(DataType::UInt64))
             .collect()
-            .unwrap();
-
-        CourseTable { df }
+            .unwrap()
+            .into()
     }
 
     pub fn to_lazy(&self) -> LazyTable {
@@ -188,6 +210,12 @@ impl Deref for CourseTable {
     }
 }
 
+impl From<DataFrame> for CourseTable {
+    fn from(df: DataFrame) -> Self {
+        CourseTable { df }
+    }
+}
+
 impl std::fmt::Display for CourseTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.df)
@@ -205,36 +233,35 @@ impl LazyTable {
 
     pub fn contains(self, codes: &[&str]) -> Self {
         // return all courses that starts with codes
-        let regex = format!("^({})", codes.join("|"));
+        let regex = format!("{}", codes.join("|"));
 
-        let df = self
-            .lf
-            .filter(col("COURSE CODE").str().contains(lit(regex), false));
-
-        LazyTable { lf: df }
+        self.lf
+            .filter(col("COURSE CODE").str().contains(lit(regex), false))
+            .into()
     }
 
-    pub fn no_conflict_with(self, courses: CourseMap) -> Self {
-        let df = self.lf.filter(col("SESSIONS").map(
-            move |s: Series| {
-                Ok(s.u64()
-                    .unwrap()
-                    .into_iter()
-                    .map(|x| Some(!courses.conflict_with(x.unwrap())))
-                    .collect())
-            },
-            GetOutput::from_type(DataType::Boolean),
-        ));
-
-        LazyTable { lf: df }
+    pub fn no_conflict_with<T>(self, courses: T) -> Self
+    where
+        T: Conflict + Send + Sync + 'static,
+    {
+        self.lf
+            .filter(col("SESSIONS").map(
+                move |s: Series| {
+                    Ok(s.u64()
+                        .unwrap()
+                        .into_iter()
+                        .map(|x| Some(!courses.conflict_with(x.unwrap())))
+                        .collect())
+                },
+                GetOutput::from_type(DataType::Boolean),
+            ))
+            .into()
     }
 
     pub fn semester(self, semester: i8) -> Self {
-        let df = self
-            .lf
-            .filter(col("CLASS SECTION").str().starts_with(lit(semester)));
-
-        LazyTable { lf: df }
+        self.lf
+            .filter(col("CLASS SECTION").str().starts_with(lit(semester)))
+            .into()
     }
 
     pub fn fall(self) -> Self {
@@ -245,9 +272,27 @@ impl LazyTable {
         self.semester(2)
     }
 
+    pub fn no_prereq(self, current_courses: CourseMap) -> Self {
+        self.lf
+            .filter(col("PREREQ").map(
+                move |s: Series| {
+                    Ok(s.str()
+                        .unwrap()
+                        .into_iter()
+                        .map(|x| {
+                            let prereq = x.unwrap();
+                            let prereq = prereq.split('&').collect::<Vec<_>>();
+                            Some(prereq.iter().all(|x| current_courses.contains_key(*x)))
+                        })
+                        .collect())
+                },
+                GetOutput::from_type(DataType::Boolean),
+            ))
+            .into()
+    }
+
     pub fn collect(self) -> Result<CourseTable, polars::prelude::PolarsError> {
-        let df = self.lf.collect()?;
-        Ok(CourseTable { df })
+        Ok(self.lf.collect()?.into())
     }
 }
 
@@ -256,5 +301,11 @@ impl Deref for LazyTable {
 
     fn deref(&self) -> &Self::Target {
         &self.lf
+    }
+}
+
+impl From<LazyFrame> for LazyTable {
+    fn from(lf: LazyFrame) -> Self {
+        LazyTable { lf }
     }
 }
