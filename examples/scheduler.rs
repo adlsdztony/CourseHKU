@@ -9,6 +9,7 @@ fn print_help() {
     println!("  REMOVE <course code>");
     println!("  CLEAR");
     println!("  FIND [course code]");
+    println!("  SCHEDULE");
     println!("  EXIT");
 }
 
@@ -71,9 +72,14 @@ fn main() {
             }
             "SCHEDULE" | "S" => {
                 print!("\x1B[2J\x1B[1;1H");
-                println!("{:?}", courses);
-                let temp_courses = courses.keep_no_conflict();
-                println!("{:?}", temp_courses);
+                println!("{}", courses);
+                courses
+                    .keep_no_conflict()
+                    .unwrap()
+                    .iter()
+                    .for_each(|course| {
+                        println!("{}", course);
+                    });
             }
             "EXIT" => {
                 break;

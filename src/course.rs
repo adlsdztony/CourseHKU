@@ -35,6 +35,17 @@ impl Course {
     }
 }
 
+impl std::fmt::Display for Course {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let sections: Vec<String> = self
+            .sections
+            .iter()
+            .map(|(section, _)| format!("{}", section))
+            .collect();
+        write!(f, "{}: {}", self.code, sections.join("&"))
+    }
+}
+
 impl Conflict for Course {
     fn conflict_with(&self, session: u64) -> bool {
         self.sections.values().all(|x| x & session != 0)
@@ -187,6 +198,16 @@ impl CourseMap {
         }
 
         Some(all_possibility.into_iter().map(|x| x.courses).collect())
+    }
+}
+
+impl std::fmt::Display for CourseMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let courses: Vec<String> = self
+            .values()
+            .map(|course| format!("{}", course))
+            .collect();
+        write!(f, "Courses: {}", courses.join(" | "))
     }
 }
 
