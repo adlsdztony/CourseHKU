@@ -69,6 +69,12 @@ fn main() {
                 let table = lazy.collect().unwrap();
                 println!("{}", table);
             }
+            "SCHEDULE" | "S" => {
+                print!("\x1B[2J\x1B[1;1H");
+                println!("{:?}", courses);
+                let temp_courses = courses.keep_no_conflict();
+                println!("{:?}", temp_courses);
+            }
             "EXIT" => {
                 break;
             }

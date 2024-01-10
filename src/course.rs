@@ -1,5 +1,10 @@
 use polars::{lazy::dsl::col, prelude::*};
-use std::{clone, collections::HashMap, ops::{Deref, DerefMut}, path::PathBuf};
+use std::{
+    clone,
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+    path::PathBuf,
+};
 
 pub trait Conflict {
     fn conflict_with(&self, session: u64) -> bool;
@@ -11,7 +16,7 @@ pub struct Course {
     title: String,
     // section -> session
     sections: HashMap<String, u64>,
-    pub prereq: Vec<String>,
+    prereq: String,
 }
 
 impl Course {
@@ -19,7 +24,7 @@ impl Course {
         code: String,
         title: String,
         sections: HashMap<String, u64>,
-        prereq: Vec<String>,
+        prereq: String,
     ) -> Course {
         Course {
             code,
@@ -98,14 +103,7 @@ impl CourseMap {
             let title = row.get(1).unwrap().to_string().replace("\"", "");
             let section = row.get(2).unwrap().to_string().replace("\"", "");
             let session = row.get(3).unwrap().try_extract::<u64>()?;
-            let prereq = row
-                .get(4)
-                .unwrap()
-                .to_string()
-                .replace("\"", "")
-                .split('&')
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>();
+            let prereq = row.get(4).unwrap().to_string().replace("\"", "");
 
             let course = courses
                 .entry(code.clone())
@@ -121,6 +119,74 @@ impl CourseMap {
         self.get(code)
             .and_then(|course| course.get(section))
             .copied()
+    }
+
+    pub fn keep_no_conflict(&self) -> Option<Vec<CourseMap>> {
+        struct SessionWithCourse {
+            session: u64,
+            courses: CourseMap,
+        }
+        let mut all_possibility: Vec<SessionWithCourse> = Vec::new();
+
+        for (code, course) in self.iter() {
+            if all_possibility.is_empty() {
+                let temp_course = course.clone();
+                temp_course.iter().for_each(|(section, session)| {
+                    all_possibility.push(SessionWithCourse {
+                        session: *session,
+                        courses: {
+                            let mut courses = CourseMap::new(HashMap::new());
+                            courses.add(
+                                code.clone(),
+                                Course {
+                                    sections: vec![(section.clone(), *session)]
+                                        .into_iter()
+                                        .collect(),
+                                    ..temp_course.clone()
+                                },
+                            );
+                            courses
+                        },
+                    })
+                });
+                continue;
+            }
+
+            let mut temp_possibility: Vec<SessionWithCourse> = Vec::new();
+
+            for t in all_possibility.iter_mut() {
+                let temp_course = course.clone();
+                temp_course
+                    .iter()
+                    .filter(|(_, session)| *session & t.session == 0)
+                    .for_each(|(section, session)| {
+                        temp_possibility.push(SessionWithCourse {
+                            session: t.session | session,
+                            courses: {
+                                let mut courses = t.courses.clone();
+                                courses.add(
+                                    code.clone(),
+                                    Course {
+                                        sections: vec![(section.clone(), *session)]
+                                            .into_iter()
+                                            .collect(),
+                                        ..temp_course.clone()
+                                    },
+                                );
+                                courses
+                            },
+                        });
+                    });
+            }
+
+            if temp_possibility.is_empty() {
+                return None;
+            }
+
+            all_possibility = temp_possibility;
+        }
+
+        Some(all_possibility.into_iter().map(|x| x.courses).collect())
     }
 }
 
@@ -163,7 +229,6 @@ impl From<CourseTable> for CourseMap {
         CourseMap::from_df(&table).expect("failed to convert CourseTable to CourseMap")
     }
 }
-
 
 pub struct CourseTable {
     df: DataFrame,
@@ -277,25 +342,6 @@ impl LazyTable {
 
     pub fn spring(self) -> Self {
         self.semester(2)
-    }
-
-    pub fn no_prereq(self, current_courses: CourseMap) -> Self {
-        self.lf
-            .filter(col("PREREQ").map(
-                move |s: Series| {
-                    Ok(s.str()
-                        .unwrap()
-                        .into_iter()
-                        .map(|x| {
-                            let prereq = x.unwrap();
-                            let prereq = prereq.split('&').collect::<Vec<_>>();
-                            Some(prereq.iter().all(|x| current_courses.contains_key(*x)))
-                        })
-                        .collect())
-                },
-                GetOutput::from_type(DataType::Boolean),
-            ))
-            .into()
     }
 
     pub fn collect(self) -> Result<CourseTable, polars::prelude::PolarsError> {
