@@ -1,5 +1,5 @@
 use polars::{lazy::dsl::col, prelude::*};
-use std::{clone, collections::HashMap, ops::Deref, path::PathBuf};
+use std::{clone, collections::HashMap, ops::{Deref, DerefMut}, path::PathBuf};
 
 pub trait Conflict {
     fn conflict_with(&self, session: u64) -> bool;
@@ -32,7 +32,7 @@ impl Course {
 
 impl Conflict for Course {
     fn conflict_with(&self, session: u64) -> bool {
-        self.sections.values().any(|x| x & session != 0)
+        self.sections.values().all(|x| x & session != 0)
     }
 }
 
@@ -138,6 +138,12 @@ impl Deref for CourseMap {
     }
 }
 
+impl DerefMut for CourseMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.courses
+    }
+}
+
 impl From<Course> for CourseMap {
     fn from(course: Course) -> Self {
         let mut courses = HashMap::new();
@@ -157,6 +163,7 @@ impl From<CourseTable> for CourseMap {
         CourseMap::from_df(&table).expect("failed to convert CourseTable to CourseMap")
     }
 }
+
 
 pub struct CourseTable {
     df: DataFrame,
@@ -232,8 +239,8 @@ impl LazyTable {
     }
 
     pub fn contains(self, codes: &[&str]) -> Self {
-        // return all courses that starts with codes
-        let regex = format!("{}", codes.join("|"));
+        // return all courses that starts with codes, ignoring case
+        let regex = format!("(?i){}", codes.join("|"));
 
         self.lf
             .filter(col("COURSE CODE").str().contains(lit(regex), false))

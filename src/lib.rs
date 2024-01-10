@@ -1,10 +1,8 @@
-mod course;
-mod scheduler;
-
+pub mod course;
 #[cfg(test)]
 mod tests {
     use course::{CourseMap, CourseTable};
-    use std::{collections::HashMap, path::PathBuf, ops::Deref};
+    use std::{collections::HashMap, path::PathBuf};
 
     use super::*;
 
@@ -85,18 +83,12 @@ mod tests {
     #[test]
     fn test_lazy() {
         let table = CourseTable::load(PathBuf::from("data.csv"));
-        let mut current_courses = CourseMap::new(HashMap::new());
-        current_courses.add(
-            "A".to_string(),
-            table.get_section("COMP1117", "1A").unwrap(),
-        );
-        current_courses.extend(table.get_courses(&["COMP2113"]).unwrap());
+
         let table = table
             .to_lazy()
             .contains(&["COMP", "MATH", "ENGG"])
             .semester(1)
             .no_conflict_with(table.get_course("COMP1117").unwrap())
-            .no_prereq(current_courses.clone())
             .collect()
             .unwrap();
         println!("{}", table);
