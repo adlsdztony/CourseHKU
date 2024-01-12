@@ -6,11 +6,13 @@ use std::{
     path::PathBuf,
 };
 
+use crate::serilize::{CourseInfo, Section};
+
 pub trait Conflict {
     fn conflict_with(&self, session: u64) -> bool;
 }
 
-#[derive(Debug, serde::Serialize, clone::Clone)]
+#[derive(Debug, clone::Clone)]
 pub struct Course {
     code: String,
     title: String,
@@ -31,6 +33,22 @@ impl Course {
             title,
             sections,
             prereq,
+        }
+    }
+}
+
+impl Course {
+    pub fn to_couseinfo(&self) -> CourseInfo {
+        let mut sections = Vec::new();
+        for (section, session) in self.sections.clone() {
+            sections.push(Section { section, session });
+        }
+
+        CourseInfo {
+            code: self.code.clone(),
+            title: self.title.clone(),
+            sections,
+            prereq: self.prereq.clone(),
         }
     }
 }
@@ -72,7 +90,7 @@ impl TryFrom<CourseMap> for Course {
     }
 }
 
-#[derive(Debug, serde::Serialize, clone::Clone)]
+#[derive(Debug, clone::Clone)]
 pub struct CourseMap {
     // code -> course
     courses: HashMap<String, Course>,

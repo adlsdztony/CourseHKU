@@ -1,7 +1,10 @@
 pub mod course;
+pub mod serilize;
+
 #[cfg(test)]
 mod tests {
     use course::{CourseMap, CourseTable};
+    use serilize::{CourseInfo, CourseList};
     use std::{collections::HashMap, path::PathBuf};
 
     use super::*;
@@ -92,5 +95,22 @@ mod tests {
             .collect()
             .unwrap();
         println!("{}", table);
+    }
+
+    #[test]
+    fn test_serilize() {
+        let table = CourseTable::load(PathBuf::from("data.csv"));
+
+        let table = table
+            .to_lazy()
+            .contains(&["COMP", "MATH", "ENGG"])
+            .semester(1)
+            .no_conflict_with(table.get_course("COMP1117").unwrap())
+            .collect()
+            .unwrap();
+
+        let map = CourseMap::from(table);
+        let list = CourseList::from(map);
+        println!("{:?}", list);
     }
 }
