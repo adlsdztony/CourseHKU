@@ -274,15 +274,18 @@ pub struct CourseTable {
 }
 
 impl CourseTable {
-    pub fn load(file_path: PathBuf) -> CourseTable {
-        LazyCsvReader::new(file_path)
+    pub fn new(df: DataFrame) -> CourseTable {
+        CourseTable { df }
+    }
+
+    pub fn load(file_path: PathBuf) -> Result<CourseTable, polars::prelude::PolarsError> {
+        let frame = LazyCsvReader::new(file_path)
             .has_header(true)
-            .finish()
-            .unwrap()
+            .finish()?
             .with_column(col("SESSIONS").cast(DataType::UInt64))
-            .collect()
-            .unwrap()
-            .into()
+            .collect()?;
+
+        Ok(CourseTable { df: frame })
     }
 
     pub fn to_lazy(&self) -> LazyTable {

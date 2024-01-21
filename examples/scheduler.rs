@@ -14,7 +14,7 @@ fn print_help() {
 }
 
 fn main() {
-    let table = CourseTable::load(PathBuf::from("data.csv"));
+    let table = CourseTable::load(PathBuf::from("data.csv")).expect("Failed to load data.csv");
     let mut courses = CourseMap::new(HashMap::new());
     loop {
         let course_codes: Vec<String> = courses.keys().cloned().collect();

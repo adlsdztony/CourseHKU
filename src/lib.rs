@@ -4,20 +4,20 @@ pub mod serilize;
 #[cfg(test)]
 mod tests {
     use course::{CourseMap, CourseTable};
-    use serilize::{CourseInfo, CourseList};
+    use serilize::CourseList;
     use std::{collections::HashMap, path::PathBuf};
 
     use super::*;
 
     #[test]
     fn it_works() {
-        let table = CourseTable::load(PathBuf::from("data.csv"));
+        let table = CourseTable::load(PathBuf::from("data.csv")).unwrap();
         println!("{}", table);
     }
 
     #[test]
     fn test_session() {
-        let table = CourseTable::load(PathBuf::from("data.csv"));
+        let table = CourseTable::load(PathBuf::from("data.csv")).unwrap();
 
         let course = table.get_course("COMP1117").unwrap();
         let table = table.to_lazy().no_conflict_with(course).collect().unwrap();
@@ -31,6 +31,7 @@ mod tests {
     #[test]
     fn test_course_code() {
         let table = CourseTable::load(PathBuf::from("data.csv"))
+            .unwrap()
             .to_lazy()
             .contains(&["COMP"])
             .collect()
@@ -40,14 +41,14 @@ mod tests {
 
     #[test]
     fn test_get_courses() {
-        let table = CourseTable::load(PathBuf::from("data.csv"));
+        let table = CourseTable::load(PathBuf::from("data.csv")).unwrap();
         let courses = table.get_courses(&["COMP1117", "COMP2113"]);
         println!("{:?}", courses);
     }
 
     #[test]
     fn test_course_code_session() {
-        let table = CourseTable::load(PathBuf::from("data.csv"));
+        let table = CourseTable::load(PathBuf::from("data.csv")).unwrap();
         let mut courses = CourseMap::new(HashMap::new());
         courses.add(
             "COMP1117".to_string(),
@@ -68,6 +69,7 @@ mod tests {
     #[test]
     fn test_semester() {
         let table = CourseTable::load(PathBuf::from("data.csv"))
+        .unwrap()
             .to_lazy()
             .spring()
             .collect()
@@ -77,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_course_map() {
-        let table = CourseTable::load(PathBuf::from("data.csv"));
+        let table = CourseTable::load(PathBuf::from("data.csv")).unwrap();
         let map = CourseMap::from(table);
         println!("{:?}", map.get("COMP1117"));
         println!("{:?}", map.get_session("COMP1117", "1A"));
@@ -85,7 +87,7 @@ mod tests {
 
     #[test]
     fn test_lazy() {
-        let table = CourseTable::load(PathBuf::from("data.csv"));
+        let table = CourseTable::load(PathBuf::from("data.csv")).unwrap();
 
         let table = table
             .to_lazy()
@@ -99,7 +101,7 @@ mod tests {
 
     #[test]
     fn test_serilize() {
-        let table = CourseTable::load(PathBuf::from("data.csv"));
+        let table = CourseTable::load(PathBuf::from("data.csv")).unwrap();
 
         let table = table
             .to_lazy()
